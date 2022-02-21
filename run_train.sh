@@ -1,0 +1,12 @@
+python src/main.py --train_filename "extracted_text.csv" \
+                   --basemodel_name "distilbert-base-uncased" \
+                   --model_save_as "auto_ex_content_classifier" \
+                   --use_gpu \
+                   --do_train \
+                   --epochs "25" \
+                   --batch_size "8" \
+                   --optimiser "adam" \
+                   --lr "0.00001" \
+                   --require_val_split \
+                   --val_fraction "0.2" \
+                   --eval_after_train_epoch
