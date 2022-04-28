@@ -1,2 +1,8 @@
 env*/
 model*/
+input/
+Misc/
+output/
+result/
+runs/
+src/_*

@@ -3,14 +3,16 @@ import numpy as np
 from transformers.models.auto.configuration_auto import AutoConfig
 import utils
 import os
+import ast
 import torch
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
+from transformers import get_linear_schedule_with_warmup
 from torch.utils.data import DataLoader
 from sklearn.preprocessing import OneHotEncoder, LabelEncoder
 from tqdm import tqdm
 from sklearn.metrics import f1_score
 from sklearn.metrics import classification_report
-
+from torch.utils.tensorboard import SummaryWriter
 
 def start_training(args):
     
@@ -24,10 +26,25 @@ def start_training(args):
     optimizer = args.optimiser
     learning_rate = args.lr
     eval_after_train_epoch = args.eval_after_train_epoch
+    use_scheduler = args.use_scheduler
+
+    ################### Initialize tensorboard logging #############
+    tb_writer = SummaryWriter()
 
     ########## Reading the data ###########
 
     df = utils.read_from_csv(os.path.join('input',args.train_filename))
+    df = df.dropna()
+    
+    ########### Check if the data is for multilabel classification #########
+    try:
+        if (type(ast.literal_eval(df['label'][0])) == list):
+            multilabel = True
+            df = utils.extend_multilabel(df)
+        else:
+            multilabel = False
+    except BaseException:
+        multilabel = False
 
     ########## Data splitting #########
 
@@ -55,7 +72,6 @@ def start_training(args):
     tokenizer = AutoTokenizer.from_pretrained(model_name)
 
     model.to(device)
-
 
     ########## Input encoding #########
 
@@ -121,6 +137,10 @@ def start_training(args):
 
     optimizer_ = utils.getoptimizer(model, optimizer, learning_rate)
 
+    if use_scheduler:
+        num_train_steps = int(len(train_dataset) / BATCH_SIZE * EPOCHS)
+        scheduler = get_linear_schedule_with_warmup(optimizer_, num_warmup_steps=0, num_training_steps=num_train_steps)
+
     ############ Training Loop #########
 
     train_lossvsepochs = []
@@ -134,12 +154,16 @@ def start_training(args):
             loss = outputs.loss
             loss.backward()
             optimizer_.step()
+            if use_scheduler:
+                scheduler.step()
             optimizer_.zero_grad()
             model.zero_grad()
             epoch_loss = epoch_loss + loss*BATCH_SIZE
         
         print('The training loss after epoch {} is {}'.format(_epoch, epoch_loss))
         train_lossvsepochs.append(epoch_loss)
+        tb_writer.add_scalar("Loss/train", epoch_loss, _epoch)  
+        tb_writer.add_scalar("Learning rate/train", optimizer_.param_groups[0]['lr'], _epoch)
 
         ################ Evaluating after epoch ##############
         
@@ -165,8 +189,9 @@ def start_training(args):
   
             f1 = f1_score(actual_val, predictions_val, average=None, labels=uniq_labels)
             print('Val f1 score {}'.format(dict(zip(uniq_labels, list(f1)))))
+            tb_writer.add_scalar('val_f1_score', np.mean(np.array(list(f1))), _epoch)
     
-    return(model, tokenizer)        
+    return(model, tokenizer, target_encoder)        
     
     
     
